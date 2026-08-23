@@ -1,0 +1,87 @@
+@startuml dfd_level0
+title Контекстная диаграмма потоков данных (MVP DFD Level 0 — 3 месяца)
+
+' Настройки контрастности и стилей
+skinparam monochrome false
+skinparam shadowing false
+skinparam roundcorner 5
+skinparam ArrowThickness 1.5
+
+skinparam component {
+    BackgroundColor White
+    BorderColor Black
+    ArrowColor Black
+}
+skinparam database {
+    BackgroundColor White
+    BorderColor Black
+}
+
+' ==============================================================================
+' УРОВЕНЬ 1: ОПЕРАЦИОННЫЕ СИСТЕМЫ (OLTP)
+' ==============================================================================
+rectangle "Операционный контур FinUnion (Master)" #F5F5F5 {
+    component [CRM\nFinUnion] as FU_CRM
+    component [Core Banking\nFinUnion] as FU_Core
+    component [Loan System\nFinUnion] as FU_Loans
+    component [Card Processing\nFinUnion] as FU_Cards
+}
+
+rectangle "Операционный контур RetailBank (Поглощаемый банк)" #F5F5F5 {
+    component [CRM\nRetailBank] as RB_CRM
+    component [Core Banking\nRetailBank] as RB_Core
+    component [Loan System\nRetailBank] as RB_Loans
+    component [Card Processing\nRetailBank] as RB_Cards
+}
+
+' ==============================================================================
+' УРОВЕНЬ 2: ИНТЕГРАЦИОННЫЙ СЛОЙ И МАСШТАБИРОВАНИЕ МЕТАДАННЫХ
+' ==============================================================================
+component [DataHub\n(Каталог метаданных)] as Tech_Hub #LightYellow
+
+component [Integration Layer\n(Apache Airflow + CDC/Batch)] as Tech_IL #LightBlue
+
+component [MDM Customer Hub\n(Склейка профилей)] as Tech_MDM #LightGreen
+
+' ==============================================================================
+' УРОВЕНЬ 3: АНАЛИТИЧЕСКИЙ СЛОЙ (OLAP) И ПОТРЕБИТЕЛИ
+' ==============================================================================
+database "DWH\n(Центральное хранилище)" as Tech_DWH
+
+component [BI\n(Витрины бизнеса)] as Client_BI
+actor "Регулятор\n(ЦБ РФ)" as Client_Reg
+
+' ==============================================================================
+' ПОТОКИ ДАННЫХ И НАПРАВЛЕНИЯ
+' ==============================================================================
+
+' Невидимые связи для жесткого позиционирования слоев сверху вниз
+FU_Core -down[hidden]- Tech_IL
+Tech_IL -down[hidden]- Tech_DWH
+
+' 1. Сбор данных из систем во временный Интеграционный слой
+FU_CRM -down-> Tech_IL : "Read (Анкеты)"
+FU_Core -down-> Tech_IL : "Read (Счета)"
+FU_Loans -down-> Tech_IL : "Read (Кредиты)"
+FU_Cards -down-> Tech_IL : "Read (Транзакции)"
+
+RB_CRM -down-> Tech_IL : "Read (Анкеты)"
+RB_Core -down-> Tech_IL : "Read (Счета)"
+RB_Loans -down-> Tech_IL : "Read (Кредиты)"
+RB_Cards -down-> Tech_IL : "Read (Транзакции)"
+
+' 2. Потоки внутри аналитического контура (Конвейер)
+Tech_IL -right-> Tech_MDM : "Validate, Enrich\n(Анкеты на дедупликацию)"
+Tech_MDM -down-> Tech_DWH : "Create\n(Запись золотого профиля с UID)"
+Tech_IL -down-> Tech_DWH : "Create\n(Прямая загрузка счетов, карт и проводок)"
+
+' 3. Потребление данных на выходе
+Tech_DWH -down-> Client_BI : "Read, Aggregate\n(Бизнес-витрины)"
+Tech_DWH -down-> Client_Reg : "Read, Aggregate\n(Отчетность ЦБ)"
+
+' 4. Пассивное сканирование метаданных каталогом DataHub
+Tech_Hub .left.> Tech_IL : "Read"
+Tech_Hub .down.> Tech_MDM : "Read"
+Tech_Hub .down.> Tech_DWH : "Read"
+
+@enduml
